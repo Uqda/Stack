@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64, ext: '' }
+          - { goos: linux, goarch: arm64, ext: '' }
+          - { goos: linux, goarch: arm, goarm: '7', ext: '' }
+          - { goos: darwin, goarch: amd64, ext: '' }
+          - { goos: darwin, goarch: arm64, ext: '' }
+          - { goos: windows, goarch: amd64, ext: '.exe' }
+          - { goos: windows, goarch: arm64, ext: '.exe' }
+          - { goos: freebsd, goarch: amd64, ext: '' }
+          - { goos: openbsd, goarch: amd64, ext: '' }
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.25.13
+          cache: true
+      - name: Build reproducible binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          CGO_ENABLED: 0
+          OUTPUT: uqda-stack-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm }}${{ matrix.ext }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          go build -trimpath \
+            -ldflags="-s -w -X github.com/Uqda/Core/src/version.buildName=uqda-stack -X github.com/Uqda/Core/src/version.buildVersion=${VERSION}" \
+            -o "dist/${OUTPUT}" ./cmd/uqda-stack
+      - uses: actions/upload-artifact@v6
+        with:
+          name: uqda-stack-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Checksums, provenance and GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum uqda-stack-* > SHA256SUMS
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign checksum manifest with GitHub OIDC
+        working-directory: dist
+        run: cosign sign-blob --yes --bundle SHA256SUMS.sigstore.json SHA256SUMS
+      - uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: dist/uqda-stack-*
+      - name: Publish immutable release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" dist/* --verify-tag --generate-notes
