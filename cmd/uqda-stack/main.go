@@ -34,7 +34,6 @@ import (
 	"github.com/Uqda/Stack/src/termui"
 	"github.com/Uqda/Stack/src/types"
 
-	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 )
 
 type node struct {
@@ -45,8 +44,7 @@ type node struct {
 }
 
 type UDPSession struct {
-	conn       interface{}
-	remoteAddr net.Addr
+	conn net.Conn
 }
 
 // The main function is responsible for configuring and starting UQDA.
@@ -439,6 +437,7 @@ func main() {
 					remoteUdpAddrStr := remoteUdpAddr.String()
 
 					connVal, ok := localUdpConnections.Load(remoteUdpAddrStr)
+					var udpSession *UDPSession
 
 					if !ok {
 						logger.Debugf("Creating new session for %s", remoteUdpAddr.String())
@@ -447,26 +446,22 @@ func main() {
 							logger.Errorf("Failed to connect to %s: %s", mapping.Mapped, err)
 							continue
 						}
-						udpSession := &UDPSession{
-							conn:       udpFwdConn,
-							remoteAddr: remoteUdpAddr,
+						udpSession = &UDPSession{
+							conn: udpFwdConn,
 						}
 						localUdpConnections.Store(remoteUdpAddrStr, udpSession)
 						go types.ReverseProxyUDP(mtu, udpListenConn, remoteUdpAddr, udpFwdConn)
+					} else {
+						udpSession, ok = connVal.(*UDPSession)
+						if !ok {
+							continue
+						}
 					}
 
-					udpSession, ok := connVal.(*UDPSession)
-					if !ok {
-						continue
-					}
-
-					udpFwdConnPtr := udpSession.conn.(*gonet.UDPConn)
-					udpFwdConn := *udpFwdConnPtr
-
-					_, err = udpFwdConn.Write(udpBuffer[:bytesRead])
+					_, err = udpSession.conn.Write(udpBuffer[:bytesRead])
 					if err != nil {
 						logger.Debugf("Cannot write from uqda to udp listener: %q", err)
-						udpFwdConn.Close()
+						_ = udpSession.conn.Close()
 						localUdpConnections.Delete(remoteUdpAddrStr)
 						continue
 					}
@@ -526,7 +521,7 @@ func main() {
 
 					remoteUdpAddrStr := remoteUdpAddr.String()
 
-					var udpSession *UDPSession = nil
+					var udpSession *UDPSession
 
 					connVal, ok := remoteUdpConnections.Load(remoteUdpAddrStr)
 
@@ -538,8 +533,7 @@ func main() {
 							continue
 						}
 						udpSession = &UDPSession{
-							conn:       udpFwdConn,
-							remoteAddr: remoteUdpAddr,
+							conn: udpFwdConn,
 						}
 						remoteUdpConnections.Store(remoteUdpAddrStr, udpSession)
 						go types.ReverseProxyUDP(mtu, udpListenConn, remoteUdpAddr, udpFwdConn)
@@ -551,13 +545,10 @@ func main() {
 						}
 					}
 
-					udpFwdConnPtr := udpSession.conn.(*net.UDPConn)
-					udpFwdConn := *udpFwdConnPtr
-
-					_, err = udpFwdConn.Write(udpBuffer[:bytesRead])
+					_, err = udpSession.conn.Write(udpBuffer[:bytesRead])
 					if err != nil {
 						logger.Debugf("Cannot write from uqda to udp listener: %q", err)
-						udpFwdConn.Close()
+						_ = udpSession.conn.Close()
 						remoteUdpConnections.Delete(remoteUdpAddrStr)
 						continue
 					}
@@ -582,7 +573,7 @@ func main() {
 		_ = n.socks5Tcp.Close()
 		logger.Infof("Stopped SOCKS5 TCP listener")
 	}
-		n.core.Stop()
+	n.core.Stop()
 }
 
 // Helper to detect if socket address is in use

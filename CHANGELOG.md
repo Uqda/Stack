@@ -13,4 +13,6 @@
 - Add `.pk.uqda` public-key names while retaining `.pk.ygg` compatibility.
 - Add automation-safe colors with `NO_COLOR` and redirected-output behavior.
 - Correct IPv4-to-IPv4 four-part mapping parsing and validate port ranges.
+- Deliver the first UDP datagram immediately and avoid copying synchronized
+  gVisor connection values.
 - Add unit, race, formatting, vulnerability, cross-build and release gates.
