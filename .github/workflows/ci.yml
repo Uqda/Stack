@@ -22,18 +22,13 @@ jobs:
         with:
           go-version: 1.25.13
           cache: true
-      - name: Normalize modules and Go source
+      - name: Download and verify modules
         run: |
+          go mod download
           go mod tidy
-          gofmt -w .
-      - name: Capture normalized source
-        run: git diff --binary > normalized.patch
-      - uses: actions/upload-artifact@v6
-        with:
-          name: normalized-source
-          path: |
-            normalized.patch
-          if-no-files-found: error
+          git diff --exit-code -- go.mod go.sum
+      - name: Require gofmt
+        run: test -z "$(gofmt -l .)"
       - name: Vet
         run: go vet ./...
       - name: Unit tests
@@ -44,8 +39,6 @@ jobs:
         run: go build ./...
       - name: Vulnerability scan
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-      - name: Require committed module and formatting state
-        run: git diff --exit-code
 
   cross-build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}

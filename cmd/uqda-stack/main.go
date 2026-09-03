@@ -33,7 +33,6 @@ import (
 	"github.com/Uqda/Stack/src/safebind"
 	"github.com/Uqda/Stack/src/termui"
 	"github.com/Uqda/Stack/src/types"
-
 )
 
 type node struct {
