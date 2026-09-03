@@ -1,0 +1,6 @@
+/uqda-stack
+/uqda-stack.exe
+/dist/
+*.test
+*.out
+.DS_Store
