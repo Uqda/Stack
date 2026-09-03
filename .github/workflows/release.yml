@@ -1,9 +1,10 @@
 name: Release
 
 on:
+  workflow_dispatch:
   push:
-    tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+    branches:
+      - 'release/v[0-9]+.[0-9]+.[0-9]+'
 
 permissions:
   contents: read
@@ -37,9 +38,9 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           GOARM: ${{ matrix.goarm }}
           CGO_ENABLED: 0
-          OUTPUT: uqda-stack-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm }}${{ matrix.ext }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="$(cat VERSION)"
+          OUTPUT="uqda-stack-v${VERSION}-${GOOS}-${GOARCH}${GOARM}${{ matrix.ext }}"
           go build -trimpath \
             -ldflags="-s -w -X github.com/Uqda/Core/src/version.buildName=uqda-stack -X github.com/Uqda/Core/src/version.buildVersion=${VERSION}" \
             -o "dist/${OUTPUT}" ./cmd/uqda-stack
@@ -58,6 +59,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
           path: dist
@@ -72,7 +74,29 @@ jobs:
       - uses: actions/attest-build-provenance@v3
         with:
           subject-path: dist/uqda-stack-*
+      - name: Verify and create release tag
+        id: release
+        run: |
+          VERSION="$(cat VERSION)"
+          TAG="v${VERSION}"
+          if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF_NAME}" != "release/${TAG}" ]; then
+            echo "release branch ${GITHUB_REF_NAME} does not match release/${TAG}" >&2
+            exit 1
+          fi
+          if git rev-parse "refs/tags/${TAG}" >/dev/null 2>&1 || git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "release tag ${TAG} already exists" >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG}" -m "UQDA Stack ${TAG}" "${GITHUB_SHA}"
+          git push origin "refs/tags/${TAG}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
       - name: Publish immutable release assets
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" dist/* --verify-tag --generate-notes
+        run: |
+          gh release create "${{ steps.release.outputs.tag }}" dist/* \
+            --verify-tag \
+            --title "UQDA Stack ${{ steps.release.outputs.tag }}" \
+            --generate-notes
