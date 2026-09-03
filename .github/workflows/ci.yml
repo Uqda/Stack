@@ -27,15 +27,12 @@ jobs:
           go mod tidy
           gofmt -w .
       - name: Capture normalized source
-        run: |
-          git diff --binary > normalized.patch
-          tar --exclude=.git --exclude=normalized-source.tar.gz -czf normalized-source.tar.gz .
+        run: git diff --binary > normalized.patch
       - uses: actions/upload-artifact@v6
         with:
           name: normalized-source
           path: |
             normalized.patch
-            normalized-source.tar.gz
           if-no-files-found: error
       - name: Vet
         run: go vet ./...
